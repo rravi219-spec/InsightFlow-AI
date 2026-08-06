@@ -1,0 +1,134 @@
+# =====================================
+# Python
+# =====================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# =====================================
+# Virtual Environments
+# =====================================
+venv/
+.venv/
+env/
+ENV/
+.env/
+.venv/**
+
+# =====================================
+# Database files
+# =====================================
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+backend/customers.db
+
+# =====================================
+# Machine Learning / Model files
+# =====================================
+*.pkl
+*.pickle
+*.joblib
+*.h5
+*.hdf5
+*.onnx
+*.pt
+*.pth
+*.keras
+*.tflite
+ml/customer_model.pkl
+frontend/customer_model.pkl
+
+# =====================================
+# Environment / Secrets
+# =====================================
+.env
+.env.local
+.env.*
+!.env.example
+*.env
+*.ini
+*.cfg
+
+# =====================================
+# IDE / Editor
+# =====================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# =====================================
+# OS files
+# =====================================
+.DS_Store
+Thumbs.db
+desktop.ini
+*.dll
+*.dylib
+
+# =====================================
+# Logs & Caches
+# =====================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.coverage.*
+
+# =====================================
+# Jupyter / Notebooks
+# =====================================
+.ipynb_checkpoints/
+*.ipynb
+
+# =====================================
+# Streamlit / Data
+# =====================================
+.streamlit/secrets.toml
+*.xlsx
+*.csv
+*.parquet
+*.feather
+*.arrow
+data_tmp/
+tmp/
+
+# =====================================
+# Misc
+# =====================================
+.DS_Store
+Thumbs.db
+.DS_Store?

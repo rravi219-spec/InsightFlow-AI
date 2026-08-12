@@ -45,7 +45,6 @@ backend/customers.db
 # =====================================
 # Machine Learning / Model files
 # =====================================
-*.pkl
 *.pickle
 *.joblib
 *.h5

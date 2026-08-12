@@ -119,6 +119,8 @@ htmlcov/
 .streamlit/secrets.toml
 *.xlsx
 *.csv
+!data/WA_Fn-UseC_-Telco-Customer-Churn.csv
+!ml/churn_feature_importance.csv
 *.parquet
 *.feather
 *.arrow

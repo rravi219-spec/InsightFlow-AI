@@ -14,7 +14,7 @@ import shap
 import numpy as np
 
 st.set_page_config(
-    page_title="Adaptive Customer Analytics",
+    page_title="InsightFlow AI | Customer Churn Intelligence",
     page_icon="📊",
     layout="wide",
 )
@@ -537,7 +537,7 @@ with st.sidebar:
     st.title("InsightFlow AI")
 
     st.caption(
-        "AI Business Intelligence Platform"
+        "Customer Churn Intelligence Platform"
     )
 
     selected = option_menu(

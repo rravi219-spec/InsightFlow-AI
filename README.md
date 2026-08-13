@@ -1,10 +1,12 @@
 # InsightFlow AI
 
-An adaptive Customer Success and Business Intelligence platform combining automated CSV/Excel analytics, churn prediction, explainable AI, customer risk segmentation, Customer Success action recommendations, and customer-to-customer comparison.
+**Customer Churn Intelligence Platform**
+
+An end-to-end Customer Success intelligence platform that predicts customer churn risk, explains the factors contributing to individual predictions, segments customers by risk, and converts machine-learning insights into actionable retention recommendations.
 
 ## Live Demo
 
-> **Streamlit deployment:** URL coming soon.
+> **Live Streamlit application:** [Launch InsightFlow AI](https://insightflow-customer-ai.streamlit.app/)
 
 ## Key Features
 

@@ -131,6 +131,18 @@ def ingest_customers(
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(db_path) as conn:
         conn.execute(CREATE_CUSTOMERS_SQL)
+        source_ids = set(df["customerID"].astype(str))
+        stored_ids = {
+            row[0]
+            for row in conn.execute("SELECT customer_id FROM customers").fetchall()
+        }
+        stale_ids = stored_ids - source_ids
+        if stale_ids:
+            conn.executemany(
+                "DELETE FROM customers WHERE customer_id = ?",
+                [(customer_id,) for customer_id in stale_ids],
+            )
+
         conn.executemany(
             """
             INSERT INTO customers (

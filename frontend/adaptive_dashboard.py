@@ -13,6 +13,13 @@ from pathlib import Path
 import shap
 import numpy as np
 
+from analytics.sqlite_analytics import (
+    DB_PATH as ANALYTICS_DB_PATH,
+    get_customer_segment_summary,
+    get_tenure_band_summary,
+    ingest_customers,
+)
+
 st.set_page_config(
     page_title="InsightFlow AI | Customer Churn Intelligence",
     page_icon="📊",
@@ -854,6 +861,70 @@ def show_analytics():
     )
     charges_chart.update_layout(showlegend=False)
     st.plotly_chart(charges_chart, use_container_width=True)
+
+    st.divider()
+    st.subheader("SQL-backed Customer Analytics")
+    st.caption(
+        "These aggregates are queried from a reproducible SQLite data layer. "
+        "Observed churn is the source outcome label; it is not predicted risk "
+        "or realized revenue loss."
+    )
+
+    try:
+        sql_ingestion = ingest_customers()
+        contract_sql = get_customer_segment_summary()
+        tenure_sql = get_tenure_band_summary()
+
+        sql_kpis = st.columns(3)
+        sql_kpis[0].metric("Rows in SQLite", f"{sql_ingestion['stored_rows']:,}")
+        sql_kpis[1].metric(
+            "Duplicate Customer IDs",
+            f"{sql_ingestion['duplicate_customer_ids']:,}",
+        )
+        sql_kpis[2].metric(
+            "Missing Total Charges",
+            f"{sql_ingestion['missing_total_charges']:,}",
+        )
+
+        st.markdown("#### Contract segments from SQL")
+        st.dataframe(
+            contract_sql.rename(
+                columns={
+                    "contract": "Contract",
+                    "customers": "Customers",
+                    "observed_churn_rate_pct": "Observed Churn Rate (%)",
+                    "avg_tenure_months": "Average Tenure (Months)",
+                    "avg_monthly_charges": "Average Monthly Charges",
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        sql_tenure_chart = px.bar(
+            tenure_sql,
+            x="tenure_band",
+            y="observed_churn_rate_pct",
+            text="observed_churn_rate_pct",
+            labels={
+                "tenure_band": "Tenure Band",
+                "observed_churn_rate_pct": "Observed Churn Rate (%)",
+            },
+            template="plotly_dark",
+            title="Observed Churn Rate by SQL-derived Tenure Band",
+        )
+        sql_tenure_chart.update_traces(
+            texttemplate="%{text:.1f}%",
+            textposition="outside",
+        )
+        st.plotly_chart(sql_tenure_chart, use_container_width=True)
+        st.caption(
+            f"SQLite database is rebuilt locally at {ANALYTICS_DB_PATH.name}; "
+            "customer_id is the primary key and ingestion uses UPSERT logic, "
+            "so reruns do not duplicate customer records."
+        )
+    except Exception as error:
+        st.warning(f"SQL-backed analytics are unavailable: {error}")
 
     st.subheader("Customer Segmentation Summary")
     st.caption(

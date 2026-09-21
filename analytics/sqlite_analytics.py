@@ -43,7 +43,7 @@ def load_source_dataframe(csv_path: Path = DATA_PATH) -> pd.DataFrame:
         raise ValueError(f"Missing required columns: {missing}")
 
     cleaned = df.copy()
-    cleaned["customerID"] = cleaned["customerID"].astype(str).str.strip()
+    cleaned["customerID"] = cleaned["customerID"].astype("string").str.strip()
     cleaned["tenure"] = pd.to_numeric(cleaned["tenure"], errors="coerce")
     cleaned["MonthlyCharges"] = pd.to_numeric(
         cleaned["MonthlyCharges"], errors="coerce"
@@ -66,10 +66,10 @@ def run_data_quality_checks(df: pd.DataFrame) -> dict[str, int]:
     invalid_churn = int(df["observed_churn"].isna().sum())
     duplicate_customer_ids = int(df["customerID"].duplicated().sum())
     missing_customer_ids = int(
-        df["customerID"].eq("").sum() + df["customerID"].isna().sum()
+        (df["customerID"].isna() | df["customerID"].eq("")).sum()
     )
     invalid_tenure = int(
-        ((df["tenure"].isna()) | (df["tenure"] < 0)).sum()
+        ((df["tenure"].isna()) | (df["tenure"] < 0) | (df["tenure"] > 72)).sum()
     )
     invalid_monthly_charges = int(
         ((df["MonthlyCharges"].isna()) | (df["MonthlyCharges"] < 0)).sum()

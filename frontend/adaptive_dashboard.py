@@ -13,13 +13,6 @@ from pathlib import Path
 import shap
 import numpy as np
 
-from analytics.sqlite_analytics import (
-    DB_PATH as ANALYTICS_DB_PATH,
-    get_customer_segment_summary,
-    get_tenure_band_summary,
-    ingest_customers,
-)
-
 st.set_page_config(
     page_title="InsightFlow AI | Customer Churn Intelligence",
     page_icon="📊",
@@ -117,6 +110,15 @@ ML_DIR = PROJECT_ROOT / "ml"
 
 if str(ML_DIR) not in sys.path:
     sys.path.append(str(ML_DIR))
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
+
+from analytics.sqlite_analytics import (
+    DB_PATH as ANALYTICS_DB_PATH,
+    get_customer_segment_summary,
+    get_tenure_band_summary,
+    ingest_customers,
+)
 
 from recommend_actions import (
     get_risk_tier,

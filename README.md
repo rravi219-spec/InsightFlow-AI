@@ -97,6 +97,8 @@ For the complete production flow, model lifecycle, runtime artifacts, and suppor
 
 ## Project Structure
 
+The separate [Online Retail II ETL foundation](etl/README.md) provides local raw, staging, and dimensional transaction tables. It is independent of the Telco churn application and is not integrated into Streamlit.
+
 ```text
 CustomerSuccessAI/
 |-- frontend/      # Streamlit applications and adaptive analytics UI

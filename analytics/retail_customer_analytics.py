@@ -170,3 +170,61 @@ def get_customer_value_concentration(db_path=DATABASE):
         COALESCE(SUM(net_value_micros),0) AS eligible_net_value_micros,
         CASE WHEN SUM(net_value_micros)>0 THEN 100.0*SUM(CASE WHEN rn <= (n+9)/10 THEN net_value_micros ELSE 0 END)/SUM(net_value_micros) END AS top_10pct_share_pct
     FROM ranked""", db_path)
+
+
+def get_analysis_metadata(db_path=DATABASE):
+    with connection(db_path) as conn:
+        return _dates(conn)
+
+
+def get_median_customer_value(db_path=DATABASE):
+    return _read("""WITH ranked AS (
+        SELECT net_value_micros, ROW_NUMBER() OVER (ORDER BY net_value_micros) AS rn,
+            COUNT(*) OVER () AS n FROM retail_ledger)
+        SELECT AVG(net_value_micros)/1000000.0 AS median_net_value_gbp
+        FROM ranked WHERE rn IN ((n+1)/2,(n+2)/2)""", db_path)
+
+
+def get_customer_ids(db_path=DATABASE):
+    """Small reference table; no transaction histories."""
+    return _read("SELECT customer_key FROM dim_customer ORDER BY customer_key", db_path)
+
+
+def get_customer_profile(customer_key, db_path=DATABASE):
+    """Selected ledger profile; RFM scores retain the full purchaser population."""
+    with connection(db_path) as conn:
+        params = {**_dates(conn), "customer": str(customer_key)}
+        rfm = (SQL_DIR / "rfm.sql").read_text(encoding="utf-8")
+        return pd.read_sql_query(f"""WITH rfm AS ({rfm}), gaps AS (
+            SELECT interval_days, ROW_NUMBER() OVER (ORDER BY interval_days) AS rn,
+                COUNT(*) OVER () AS n FROM retail_order_intervals
+            WHERE customer_key=:customer AND interval_days IS NOT NULL)
+            SELECT l.*, r.first_purchase_date, r.last_purchase_date,
+                COALESCE(r.frequency,0) AS frequency, r.recency_days,
+                r.r_score,r.f_score,r.m_score,r.segment,
+                l.gross_purchase_micros/1000000.0/NULLIF(r.frequency,0) AS average_order_value_gbp,
+                (SELECT COUNT(*) FROM retail_known_lines WHERE customer_key=:customer AND is_purchase=0) AS adjustment_lines,
+                (SELECT GROUP_CONCAT(DISTINCT country_key) FROM retail_known_lines WHERE customer_key=:customer) AS countries,
+                (SELECT AVG(interval_days) FROM gaps WHERE rn IN ((n+1)/2,(n+2)/2)) AS median_interval_days
+            FROM retail_ledger l LEFT JOIN rfm r USING(customer_key)
+            WHERE l.customer_key=:customer""", conn, params=params)
+
+
+def get_customer_history(customer_key, db_path=DATABASE, limit=50, offset=0):
+    if not isinstance(limit, int) or not 1 <= limit <= 100 or not isinstance(offset, int) or offset < 0:
+        raise ValueError("History requires a limit of 1–100 and a nonnegative offset")
+    return _read("""SELECT f.invoice_timestamp, f.invoice, f.product_key, p.description,
+        f.quantity, f.amount_micros, f.country_key,
+        CASE WHEN f.quantity>0 AND f.is_cancelled=0 THEN 'Purchase' ELSE 'Return / adjustment' END AS activity
+        FROM fact_transaction f LEFT JOIN dim_product p USING(product_key)
+        WHERE f.customer_key=:customer
+        ORDER BY f.invoice_timestamp DESC, f.source_sheet, f.source_row
+        LIMIT :limit OFFSET :offset""", db_path,
+        {"customer": str(customer_key), "limit": limit, "offset": offset})
+
+
+def get_customer_activity(customer_key, db_path=DATABASE):
+    return _read("""SELECT STRFTIME('%Y-%m',order_timestamp) AS month,
+        COUNT(*) AS purchase_orders, SUM(gross_purchase_micros) AS gross_purchase_micros
+        FROM retail_orders WHERE customer_key=:customer GROUP BY month ORDER BY month""",
+        db_path, {"customer": str(customer_key)})

@@ -1,6 +1,8 @@
 # Retail customer analytics: definitions and API
 
-This layer reads the separate Online Retail II dimensional database. It does not alter the ETL, join retail customers to Telco, predict churn/CLV, or add dashboards. All aggregation runs in SQLite. Python returns result tables, exports them, and independently validates them.
+This layer reads the separate Online Retail II dimensional database. It does not alter the ETL, join retail customers to Telco, or predict churn/CLV. All aggregation runs in SQLite. Python returns result tables, exports them, and independently validates them. The [retail Streamlit presentation](../frontend/RETAIL_DASHBOARD.md) consumes these APIs without redefining the metrics.
+
+Milestone 5 adds read-only APIs for analysis metadata, median known-customer net value, customer ID references, and a selected customer's profile, monthly purchase activity, and transaction history. Customer IDs, limits and offsets are bound SQL parameters. History defaults to 50 rows and accepts at most 100 per call, with stable source-position ordering after transaction timestamp. Profile RFM scores are computed over the entire eligible purchaser population before selecting a customer. Product descriptions in history are representative dimension values, not necessarily the original line description; countries are observed transaction attributes. Return-only customers retain their ledger but have NULL purchase dates, intervals and scores.
 
 ## Eligibility and populations
 

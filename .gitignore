@@ -126,6 +126,11 @@ htmlcov/
 *.arrow
 data_tmp/
 tmp/
+data/raw/
+data/processed/
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
 
 # =====================================
 # Misc

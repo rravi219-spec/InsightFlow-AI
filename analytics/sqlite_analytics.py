@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
+import numpy as np
 from pathlib import Path
 
 import pandas as pd
@@ -23,7 +25,7 @@ REQUIRED_COLUMNS = {
 
 CREATE_CUSTOMERS_SQL = """
 CREATE TABLE IF NOT EXISTS customers (
-    customer_id TEXT PRIMARY KEY,
+    customer_id TEXT NOT NULL PRIMARY KEY,
     tenure INTEGER,
     contract TEXT,
     payment_method TEXT,
@@ -36,7 +38,7 @@ CREATE TABLE IF NOT EXISTS customers (
 
 
 def load_source_dataframe(csv_path: Path = DATA_PATH) -> pd.DataFrame:
-    df = pd.read_csv(csv_path)
+    df = pd.read_csv(csv_path, dtype={"customerID": "string"}, keep_default_na=False)
 
     missing = sorted(REQUIRED_COLUMNS.difference(df.columns))
     if missing:
@@ -47,6 +49,10 @@ def load_source_dataframe(csv_path: Path = DATA_PATH) -> pd.DataFrame:
     cleaned["tenure"] = pd.to_numeric(cleaned["tenure"], errors="coerce")
     cleaned["MonthlyCharges"] = pd.to_numeric(
         cleaned["MonthlyCharges"], errors="coerce"
+    )
+    cleaned["total_charges_missing"] = (
+        cleaned["TotalCharges"].astype("string").str.strip().eq("")
+        | cleaned["TotalCharges"].isna()
     )
     cleaned["TotalCharges"] = pd.to_numeric(
         cleaned["TotalCharges"], errors="coerce"
@@ -69,10 +75,11 @@ def run_data_quality_checks(df: pd.DataFrame) -> dict[str, int]:
         (df["customerID"].isna() | df["customerID"].eq("")).sum()
     )
     invalid_tenure = int(
-        ((df["tenure"].isna()) | (df["tenure"] < 0) | (df["tenure"] > 72)).sum()
+        ((~np.isfinite(df["tenure"])) | (df["tenure"] < 0)
+         | (df["tenure"] > 72) | (df["tenure"] % 1 != 0)).sum()
     )
     invalid_monthly_charges = int(
-        ((df["MonthlyCharges"].isna()) | (df["MonthlyCharges"] < 0)).sum()
+        ((~np.isfinite(df["MonthlyCharges"])) | (df["MonthlyCharges"] < 0)).sum()
     )
 
     return {
@@ -82,7 +89,11 @@ def run_data_quality_checks(df: pd.DataFrame) -> dict[str, int]:
         "invalid_churn_labels": invalid_churn,
         "invalid_tenure_values": invalid_tenure,
         "invalid_monthly_charges": invalid_monthly_charges,
-        "missing_total_charges": int(df["TotalCharges"].isna().sum()),
+        "missing_total_charges": int(df["total_charges_missing"].sum()),
+        "invalid_total_charges": int((
+            ~df["total_charges_missing"]
+            & (~np.isfinite(df["TotalCharges"]) | (df["TotalCharges"] < 0))
+        ).sum()),
     }
 
 
@@ -94,6 +105,7 @@ def validate_for_ingestion(df: pd.DataFrame) -> dict[str, int]:
         "invalid_churn_labels": checks["invalid_churn_labels"],
         "invalid_tenure_values": checks["invalid_tenure_values"],
         "invalid_monthly_charges": checks["invalid_monthly_charges"],
+        "invalid_total_charges": checks["invalid_total_charges"],
     }
 
     failures = {key: value for key, value in blocking.items() if value > 0}
@@ -129,7 +141,7 @@ def ingest_customers(
     checks = validate_for_ingestion(df)
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         conn.execute(CREATE_CUSTOMERS_SQL)
         source_ids = set(df["customerID"].astype(str))
         stored_ids = {
@@ -185,6 +197,7 @@ def get_customer_segment_summary(
     SELECT
         contract,
         COUNT(*) AS customers,
+        SUM(observed_churn) AS observed_churn_customers,
         ROUND(100.0 * AVG(observed_churn), 2) AS observed_churn_rate_pct,
         ROUND(AVG(tenure), 1) AS avg_tenure_months,
         ROUND(AVG(monthly_charges), 2) AS avg_monthly_charges
@@ -193,7 +206,7 @@ def get_customer_segment_summary(
     ORDER BY observed_churn_rate_pct DESC, customers DESC
     """
 
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         return pd.read_sql_query(query, conn)
 
 
@@ -222,6 +235,7 @@ def get_tenure_band_summary(
     SELECT
         tenure_band,
         COUNT(*) AS customers,
+        SUM(observed_churn) AS observed_churn_customers,
         ROUND(100.0 * AVG(observed_churn), 2) AS observed_churn_rate_pct,
         ROUND(AVG(monthly_charges), 2) AS avg_monthly_charges
     FROM tenure_bands
@@ -229,8 +243,55 @@ def get_tenure_band_summary(
     ORDER BY band_order
     """
 
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         return pd.read_sql_query(query, conn)
+
+
+def get_overall_customer_summary(db_path: Path = DB_PATH) -> dict:
+    """Unrounded portfolio aggregates; an empty snapshot has undefined means."""
+    with closing(sqlite3.connect(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        return dict(conn.execute("""
+            SELECT COUNT(*) AS customers,
+                   COALESCE(SUM(observed_churn), 0) AS observed_churn_customers,
+                   100.0 * AVG(observed_churn) AS observed_churn_rate_pct,
+                   AVG(tenure) AS avg_tenure_months,
+                   AVG(monthly_charges) AS avg_monthly_charges
+            FROM customers
+        """).fetchone())
+
+
+def _get_service_summary(column: str, db_path: Path) -> pd.DataFrame:
+    # Identifiers cannot be bound parameters: restrict them to this allowlist.
+    if column not in {"payment_method", "internet_service"}:
+        raise ValueError("Unsupported segment")
+    with closing(sqlite3.connect(db_path)) as conn:
+        return pd.read_sql_query(f"""
+            SELECT {column}, COUNT(*) AS customers,
+                   ROUND(100.0 * AVG(observed_churn), 2) AS observed_churn_rate_pct,
+                   ROUND(AVG(monthly_charges), 2) AS avg_monthly_charges
+            FROM customers GROUP BY {column}
+            ORDER BY observed_churn_rate_pct DESC, {column}
+        """, conn)
+
+
+def get_payment_method_summary(db_path: Path = DB_PATH) -> pd.DataFrame:
+    return _get_service_summary("payment_method", db_path)
+
+
+def get_internet_service_summary(db_path: Path = DB_PATH) -> pd.DataFrame:
+    return _get_service_summary("internet_service", db_path)
+
+
+def get_monthly_charges_distribution(db_path: Path = DB_PATH) -> pd.DataFrame:
+    """Validated observations for Plotly's box plot, not a second KPI engine."""
+    with closing(sqlite3.connect(db_path)) as conn:
+        return pd.read_sql_query("""
+            SELECT monthly_charges AS MonthlyCharges,
+                   CASE observed_churn WHEN 1 THEN 'Churned' ELSE 'Retained' END
+                       AS "Customer Status"
+            FROM customers ORDER BY customer_id
+        """, conn)
 
 
 if __name__ == "__main__":

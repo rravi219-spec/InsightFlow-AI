@@ -114,7 +114,10 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 from analytics.sqlite_analytics import (
-    DB_PATH as ANALYTICS_DB_PATH,
+    get_overall_customer_summary,
+    get_payment_method_summary,
+    get_internet_service_summary,
+    get_monthly_charges_distribution,
     get_customer_segment_summary,
     get_tenure_band_summary,
     ingest_customers,
@@ -610,66 +613,39 @@ def show_analytics():
         "methods, services, tenure, and monthly charges.",
     )
 
-    analytics_data_path = (
-        PROJECT_ROOT
-        / "data"
-        / "WA_Fn-UseC_-Telco-Customer-Churn.csv"
+    st.subheader("Observed Customer Analytics")
+    st.caption(
+        "Observed churn is the historical source outcome, not predicted risk. "
+        "MonthlyCharges is not realized revenue loss. This is a customer snapshot, "
+        "not a history of retention events."
     )
-
-    @st.cache_data
-    def load_analytics_dataset():
-        analytics_df = pd.read_csv(analytics_data_path)
-        analytics_df["TotalCharges"] = pd.to_numeric(
-            analytics_df["TotalCharges"],
-            errors="coerce",
-        )
-        return analytics_df
-
     try:
-        analytics_df = load_analytics_dataset().copy()
-
-        required_columns = {
-            "customerID",
-            "Churn",
-            "Contract",
-            "PaymentMethod",
-            "InternetService",
-            "tenure",
-            "MonthlyCharges",
-        }
-
-        if not required_columns.issubset(analytics_df.columns):
-            st.error(
-                "Customer analytics is unavailable because the source "
-                "dataset does not contain all required fields."
-            )
-            return
-
-        analytics_df["Churn Binary"] = (
-            analytics_df["Churn"]
-            .astype(str)
-            .str.strip()
-            .str.lower()
-            .map({"yes": 1, "no": 0})
-        )
-
-        analytics_df["MonthlyCharges"] = pd.to_numeric(
-            analytics_df["MonthlyCharges"],
-            errors="coerce",
-        )
-        analytics_df["tenure"] = pd.to_numeric(
-            analytics_df["tenure"],
-            errors="coerce",
-        )
-
+        quality = ingest_customers()
+        overall = get_overall_customer_summary()
+        contract_summary = get_customer_segment_summary()
+        payment_summary = get_payment_method_summary()
+        internet_summary = get_internet_service_summary()
+        tenure_summary = get_tenure_band_summary()
+        charges_df = get_monthly_charges_distribution()
     except Exception:
-        st.error(
-            "Customer analytics could not be loaded. Please verify that "
-            "the Telco churn dataset is available and readable."
-        )
+        st.error("Observed customer analytics are unavailable. Check the source data and local analytics database.")
+        return
+    if not overall["customers"]:
+        st.info("No customers are available in the current snapshot.")
         return
 
-    customer_ids = analytics_df["customerID"].dropna().astype(str).tolist()
+    # Full source features are used only for individual profiles and ML inference.
+    try:
+        analytics_df = pd.read_csv(
+            PROJECT_ROOT / "data" / "WA_Fn-UseC_-Telco-Customer-Churn.csv",
+            dtype={"customerID": "string"},
+        )
+        analytics_df["TotalCharges"] = pd.to_numeric(analytics_df["TotalCharges"], errors="coerce")
+    except Exception:
+        analytics_df = None
+        st.warning("Individual customer profiles are unavailable; observed SQL analytics remain available.")
+
+    customer_ids = analytics_df["customerID"].dropna().astype(str).tolist() if analytics_df is not None else []
     view_customer = st.selectbox(
         "Customer View",
         ["All Customers"] + customer_ids,
@@ -678,6 +654,8 @@ def show_analytics():
     )
 
     if view_customer != "All Customers":
+        st.subheader("Modeled Churn Risk / ML Analytics")
+        st.caption("Predicted churn risk is a model probability; actual churn is the source outcome.")
         selected_record = get_customer_record(analytics_df, view_customer)
         if selected_record is None:
             st.warning("The selected customer record could not be found.")
@@ -687,41 +665,36 @@ def show_analytics():
         render_customer_comparison(analytics_df)
         return
 
-    valid_churn = analytics_df["Churn Binary"].notna()
-    total_customers = len(analytics_df)
-    overall_churn_rate = (
-        analytics_df.loc[valid_churn, "Churn Binary"].mean() * 100
-    )
-    average_monthly_charges = analytics_df["MonthlyCharges"].mean()
-    average_tenure = analytics_df["tenure"].mean()
-    churned_customers = int(
-        analytics_df["Churn Binary"].fillna(0).sum()
-    )
+    total_customers = overall["customers"]
+    overall_churn_rate = overall["observed_churn_rate_pct"]
+    average_monthly_charges = overall["avg_monthly_charges"]
+    average_tenure = overall["avg_tenure_months"]
+    churned_customers = overall["observed_churn_customers"]
 
     st.subheader("Executive Analytics KPIs")
 
     kpi_columns = st.columns(5)
     kpi_columns[0].metric("Total Customers", f"{total_customers:,}")
-    kpi_columns[1].metric("Overall Churn Rate", f"{overall_churn_rate:.1f}%")
+    kpi_columns[1].metric("Observed Churn Rate", f"{overall_churn_rate:.1f}%")
     kpi_columns[2].metric(
         "Average Monthly Charges",
         f"${average_monthly_charges:,.2f}",
     )
     kpi_columns[3].metric("Average Tenure", f"{average_tenure:.1f} months")
-    kpi_columns[4].metric("Churned Customers", f"{churned_customers:,}")
+    kpi_columns[4].metric("Observed Churn Customers", f"{churned_customers:,}")
 
     st.divider()
 
-    def churn_rate_summary(column: str) -> pd.DataFrame:
-        return (
-            analytics_df.dropna(subset=[column, "Churn Binary"])
-            .groupby(column, as_index=False, observed=True)
-            .agg(
-                Customers=("customerID", "count"),
-                Churn_Rate=("Churn Binary", "mean"),
-            )
-            .assign(Churn_Rate=lambda frame: frame["Churn_Rate"] * 100)
-        )
+    # Rename query output only for chart presentation; no pandas aggregation.
+    display_columns = {
+        "contract": "Contract", "payment_method": "PaymentMethod",
+        "internet_service": "InternetService", "tenure_band": "Tenure Band",
+        "customers": "Customers", "observed_churn_rate_pct": "Churn_Rate",
+    }
+    contract_summary = contract_summary.rename(columns=display_columns)
+    payment_summary = payment_summary.rename(columns=display_columns)
+    internet_summary = internet_summary.rename(columns=display_columns)
+    tenure_summary = tenure_summary.rename(columns=display_columns)
 
     st.subheader("Churn by Contract Type")
     st.caption(
@@ -730,7 +703,6 @@ def show_analytics():
     )
 
     contract_order = ["Month-to-month", "One year", "Two year"]
-    contract_summary = churn_rate_summary("Contract")
     contract_summary["Contract"] = pd.Categorical(
         contract_summary["Contract"],
         categories=contract_order,
@@ -744,7 +716,7 @@ def show_analytics():
         y="Churn_Rate",
         color="Churn_Rate",
         text="Churn_Rate",
-        labels={"Churn_Rate": "Churn Rate (%)"},
+        labels={"Churn_Rate": "Observed Churn Rate (%)"},
         category_orders={"Contract": contract_order},
         color_continuous_scale="Blues",
         template="plotly_dark",
@@ -752,7 +724,7 @@ def show_analytics():
     )
     contract_chart.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
     contract_chart.update_layout(coloraxis_showscale=False)
-    st.plotly_chart(contract_chart, use_container_width=True)
+    st.plotly_chart(contract_chart, width="stretch")
 
     chart_col1, chart_col2 = st.columns(2)
 
@@ -761,10 +733,6 @@ def show_analytics():
         st.caption(
             "Compares retention outcomes across the ways customers pay."
         )
-        payment_summary = churn_rate_summary("PaymentMethod").sort_values(
-            "Churn_Rate",
-            ascending=False,
-        )
         payment_chart = px.bar(
             payment_summary,
             x="PaymentMethod",
@@ -772,23 +740,19 @@ def show_analytics():
             color="Churn_Rate",
             labels={
                 "PaymentMethod": "Payment Method",
-                "Churn_Rate": "Churn Rate (%)",
+                "Churn_Rate": "Observed Churn Rate (%)",
             },
             color_continuous_scale="Tealgrn",
             template="plotly_dark",
             title="Customer Churn Rate by Payment Method",
         )
         payment_chart.update_layout(coloraxis_showscale=False)
-        st.plotly_chart(payment_chart, use_container_width=True)
+        st.plotly_chart(payment_chart, width="stretch")
 
     with chart_col2:
         st.subheader("Churn by Internet Service")
         st.caption(
             "Highlights differences in churn across internet-service types."
-        )
-        internet_summary = churn_rate_summary("InternetService").sort_values(
-            "Churn_Rate",
-            ascending=False,
         )
         internet_chart = px.bar(
             internet_summary,
@@ -797,31 +761,20 @@ def show_analytics():
             color="InternetService",
             labels={
                 "InternetService": "Internet Service",
-                "Churn_Rate": "Churn Rate (%)",
+                "Churn_Rate": "Observed Churn Rate (%)",
             },
             template="plotly_dark",
             title="Customer Churn Rate by Internet Service",
         )
         internet_chart.update_layout(showlegend=False)
-        st.plotly_chart(internet_chart, use_container_width=True)
+        st.plotly_chart(internet_chart, width="stretch")
 
-    analytics_df["Tenure Band"] = pd.cut(
-        analytics_df["tenure"],
-        bins=[-1, 12, 24, 48, float("inf")],
-        labels=["0–12 months", "13–24 months", "25–48 months", "49+ months"],
-    )
-
-    tenure_order = [
-        "0–12 months",
-        "13–24 months",
-        "25–48 months",
-        "49+ months",
-    ]
-    tenure_summary = churn_rate_summary("Tenure Band")
+    tenure_order = tenure_summary["Tenure Band"].tolist()
 
     st.subheader("Tenure vs Churn")
     st.caption(
-        "Shows how churn changes as customers progress through their lifecycle."
+        "Compares observed churn across tenure groups in this snapshot; "
+        "these are not longitudinal retention cohorts."
     )
     tenure_chart = px.bar(
         tenure_summary,
@@ -829,7 +782,7 @@ def show_analytics():
         y="Churn_Rate",
         color="Churn_Rate",
         text="Churn_Rate",
-        labels={"Churn_Rate": "Churn Rate (%)"},
+        labels={"Churn_Rate": "Observed Churn Rate (%)"},
         category_orders={"Tenure Band": tenure_order},
         color_continuous_scale="Blues",
         template="plotly_dark",
@@ -837,18 +790,12 @@ def show_analytics():
     )
     tenure_chart.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
     tenure_chart.update_layout(coloraxis_showscale=False)
-    st.plotly_chart(tenure_chart, use_container_width=True)
+    st.plotly_chart(tenure_chart, width="stretch")
 
     st.subheader("Monthly Charges vs Churn")
     st.caption(
         "The distribution shows whether churned customers tend to have "
         "different monthly charges from retained customers."
-    )
-    charges_df = analytics_df.dropna(
-        subset=["MonthlyCharges", "Churn Binary"]
-    ).copy()
-    charges_df["Customer Status"] = charges_df["Churn Binary"].map(
-        {0: "Retained", 1: "Churned"}
     )
     charges_chart = px.box(
         charges_df,
@@ -862,71 +809,19 @@ def show_analytics():
         title="Monthly Charges for Retained and Churned Customers",
     )
     charges_chart.update_layout(showlegend=False)
-    st.plotly_chart(charges_chart, use_container_width=True)
+    st.plotly_chart(charges_chart, width="stretch")
 
-    st.divider()
-    st.subheader("SQL-backed Customer Analytics")
     st.caption(
-        "These aggregates are queried from a reproducible SQLite data layer. "
-        "Observed churn is the source outcome label; it is not predicted risk "
-        "or realized revenue loss."
+        f"Validated snapshot: {quality['stored_rows']:,} customers; "
+        f"{quality['missing_total_charges']:,} missing total charges."
     )
-
-    try:
-        sql_ingestion = ingest_customers()
-        contract_sql = get_customer_segment_summary()
-        tenure_sql = get_tenure_band_summary()
-
-        sql_kpis = st.columns(3)
-        sql_kpis[0].metric("Rows in SQLite", f"{sql_ingestion['stored_rows']:,}")
-        sql_kpis[1].metric(
-            "Duplicate Customer IDs",
-            f"{sql_ingestion['duplicate_customer_ids']:,}",
-        )
-        sql_kpis[2].metric(
-            "Missing Total Charges",
-            f"{sql_ingestion['missing_total_charges']:,}",
-        )
-
-        st.markdown("#### Contract segments from SQL")
-        st.dataframe(
-            contract_sql.rename(
-                columns={
-                    "contract": "Contract",
-                    "customers": "Customers",
-                    "observed_churn_rate_pct": "Observed Churn Rate (%)",
-                    "avg_tenure_months": "Average Tenure (Months)",
-                    "avg_monthly_charges": "Average Monthly Charges",
-                }
-            ),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        sql_tenure_chart = px.bar(
-            tenure_sql,
-            x="tenure_band",
-            y="observed_churn_rate_pct",
-            text="observed_churn_rate_pct",
-            labels={
-                "tenure_band": "Tenure Band",
-                "observed_churn_rate_pct": "Observed Churn Rate (%)",
-            },
-            template="plotly_dark",
-            title="Observed Churn Rate by SQL-derived Tenure Band",
-        )
-        sql_tenure_chart.update_traces(
-            texttemplate="%{text:.1f}%",
-            textposition="outside",
-        )
-        st.plotly_chart(sql_tenure_chart, use_container_width=True)
-        st.caption(
-            f"SQLite database is rebuilt locally at {ANALYTICS_DB_PATH.name}; "
-            "customer_id is the primary key and ingestion uses UPSERT logic, "
-            "so reruns do not duplicate customer records."
-        )
-    except Exception as error:
-        st.warning(f"SQL-backed analytics are unavailable: {error}")
+    st.markdown("#### Contract segments")
+    st.dataframe(contract_summary.rename(columns={
+        "Churn_Rate": "Observed Churn Rate (%)",
+        "observed_churn_customers": "Observed Churn Customers",
+        "avg_tenure_months": "Average Tenure (Months)",
+        "avg_monthly_charges": "Average Monthly Charges",
+    }), width="stretch", hide_index=True)
 
     st.subheader("Customer Segmentation Summary")
     st.caption(
@@ -936,20 +831,22 @@ def show_analytics():
         columns={
             "Tenure Band": "Segment",
             "Customers": "Customer Count",
-            "Churn_Rate": "Churn Rate",
+            "Churn_Rate": "Observed Churn Rate",
         }
     )
-    segment_table["Churn Rate"] = segment_table["Churn Rate"].map(
+    segment_table["Observed Churn Rate"] = segment_table["Observed Churn Rate"].map(
         lambda value: f"{value:.1f}%"
     )
     st.dataframe(
-        segment_table[["Segment", "Customer Count", "Churn Rate"]],
-        use_container_width=True,
+        segment_table[["Segment", "Customer Count", "Observed Churn Rate"]],
+        width="stretch",
         hide_index=True,
     )
 
-    render_customer_comparison(analytics_df)
-
+    st.subheader("Modeled Churn Risk / ML Analytics")
+    st.caption("Predicted churn risk is a model probability; actual churn is the source outcome.")
+    if analytics_df is not None:
+        render_customer_comparison(analytics_df)
 def show_reports():
 
     show_page_header(

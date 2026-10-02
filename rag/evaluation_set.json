@@ -1,0 +1,12 @@
+[
+  {"id":"rfm", "query":"What do recency, frequency and monetary mean in our RFM scoring?", "expected_sources":["analytics/RETAIL_CUSTOMER_ANALYTICS.md"]},
+  {"id":"cohorts", "query":"How is monthly cohort retention calculated and what do future blank cells mean?", "expected_sources":["analytics/RETAIL_CUSTOMER_ANALYTICS.md"]},
+  {"id":"repeat", "query":"What qualifies as a repeat purchaser and what is the repeat purchase rate denominator?", "expected_sources":["analytics/RETAIL_CUSTOMER_ANALYTICS.md"]},
+  {"id":"value", "query":"Is historical customer value the same as predicted customer lifetime value?", "expected_sources":["analytics/RETAIL_CUSTOMER_ANALYTICS.md","frontend/RETAIL_DASHBOARD.md"]},
+  {"id":"churn", "query":"How does observed churn differ from predicted churn risk?", "expected_sources":["analytics/README.md"]},
+  {"id":"grain", "query":"What is the grain and primary key of the retail fact transaction table?", "expected_sources":["etl/README.md"]},
+  {"id":"anonymous", "query":"How are anonymous customers treated in the retail customer metrics?", "expected_sources":["analytics/RETAIL_CUSTOMER_ANALYTICS.md","etl/README.md"]},
+  {"id":"returns", "query":"How are cancellations and negative return quantities treated in qualifying purchases and net value?", "expected_sources":["analytics/RETAIL_CUSTOMER_ANALYTICS.md","etl/README.md"]},
+  {"id":"charges", "query":"How are blank and malformed TotalCharges values handled during Telco ingestion?", "expected_sources":["analytics/README.md"]},
+  {"id":"scale", "query":"How many raw rows and eligible fact rows are in the Online Retail II dataset?", "expected_sources":["etl/VALIDATION.md","docs/MILESTONE_CHECKPOINT.md"]}
+]

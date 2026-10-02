@@ -6,7 +6,6 @@ from typing import Optional
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-from streamlit_option_menu import option_menu
 import joblib
 import sys
 from pathlib import Path
@@ -14,81 +13,10 @@ import shap
 import numpy as np
 
 st.set_page_config(
-    page_title="InsightFlow AI | Customer Churn Intelligence",
+    page_title="InsightFlow AI | Customer Intelligence & Analytics Platform",
     page_icon="📊",
     layout="wide",
 )
-
-st.markdown(
-    """
-    <style>
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 3rem;
-    }
-    .insightflow-page-header {
-        margin-bottom: 1.5rem;
-    }
-    .insightflow-page-title {
-        color: #f8fafc;
-        font-size: 2.15rem;
-        font-weight: 750;
-        line-height: 1.15;
-        margin: 0;
-    }
-    .insightflow-page-subtitle {
-        color: #94a3b8;
-        font-size: 1rem;
-        margin: 0.55rem 0 0;
-        max-width: 850px;
-    }
-    div[data-testid="stMetric"] {
-        background: linear-gradient(145deg, #161b22, #111827);
-        border: 1px solid #2d3748;
-        border-radius: 12px;
-        padding: 1rem 1.1rem;
-        min-height: 112px;
-    }
-    div[data-testid="stMetricLabel"] {
-        color: #94a3b8;
-    }
-    div[data-testid="stMetricValue"] {
-        color: #f8fafc;
-    }
-    .risk-card {
-        background: linear-gradient(145deg, #161b22, #111827);
-        border: 1px solid #2d3748;
-        border-radius: 14px;
-        min-height: 138px;
-        padding: 1.15rem 1.25rem;
-    }
-    .risk-label {
-        color: #94a3b8;
-        font-size: 0.86rem;
-        font-weight: 600;
-    }
-    .risk-value {
-        color: #f8fafc;
-        font-size: 1.8rem;
-        font-weight: 750;
-        margin: 0.35rem 0;
-    }
-    .risk-caption {
-        color: #64748b;
-        font-size: 0.8rem;
-    }
-    div[data-testid="stPlotlyChart"],
-    div[data-testid="stDataFrame"] {
-        margin-bottom: 1rem;
-    }
-    section[data-testid="stSidebar"] [data-testid="stImage"] {
-        margin-bottom: 0.25rem;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
 
 def show_page_header(icon: str, title: str, subtitle: str):
     st.markdown(
@@ -539,67 +467,12 @@ from recommend_actions import (
 # Premium Sidebar
 # ==========================================
 
+from frontend.design_system import apply_design
+from frontend.navigation import navigation
+
+apply_design()
 with st.sidebar:
-
-    st.image(
-        "https://raw.githubusercontent.com/github/explore/main/topics/python/python.png",
-        width=80
-    )
-
-    st.title("InsightFlow AI")
-
-    st.caption(
-        "Customer Churn Intelligence Platform"
-    )
-
-    selected = option_menu(
-
-        None,
-
-        [
-            "Dashboard",
-            "AI Insights",
-            "Analytics",
-            "Reports",
-            "Settings"
-        ],
-
-        icons=[
-            "house",
-            "robot",
-            "bar-chart",
-            "file-earmark-text",
-            "gear"
-        ],
-
-        default_index=0,
-
-        styles={
-
-            "container":{
-                "padding":"5px",
-                "background-color":"#161b22"
-            },
-
-            "icon":{
-                "color":"#22c55e",
-                "font-size":"18px"
-            },
-
-            "nav-link":{
-                "font-size":"16px",
-                "text-align":"left",
-                "margin":"5px",
-                "--hover-color":"#2d3748"
-            },
-
-            "nav-link-selected":{
-                "background-color":"#2563eb"
-            }
-
-        }
-
-    )
+    selected = navigation()
 # =====================================================
 # PAGE VIEWS
 # =====================================================
@@ -2372,10 +2245,22 @@ def show_ai_insights():
 # PAGE ROUTING
 # =====================================================
 
-if selected == "Dashboard":
+if selected in ("Executive Pulse", "Customer Segments", "Retention", "Customer 360", "Retail Customer Analytics"):
+    from frontend.retail_dashboard import show_retail_dashboard
+    show_retail_dashboard(view="Executive Pulse" if selected == "Retail Customer Analytics" else selected)
+elif selected == "Churn Intelligence":
+    telco_view = st.radio("Telco workspace", ["Risk Dashboard", "Observed Telco Analytics"], horizontal=True)
+    if telco_view == "Risk Dashboard":
+        show_dashboard()
+    else:
+        show_analytics()
+elif selected == "Dashboard":
     show_dashboard()
 elif selected == "AI Insights":
     show_ai_insights()
+elif selected == "Ask InsightFlow":
+    from frontend.ask_insightflow import show_ask_insightflow
+    show_ask_insightflow()
 elif selected == "Analytics":
     show_analytics()
 elif selected == "Reports":

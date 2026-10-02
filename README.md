@@ -97,7 +97,9 @@ For the complete production flow, model lifecycle, runtime artifacts, and suppor
 
 ## Project Structure
 
-The separate [Online Retail II ETL foundation](etl/README.md) provides local raw, staging, and dimensional transaction tables. It is independent of the Telco churn application and is not integrated into Streamlit.
+Local documentation retrieval infrastructure is available in [rag/README.md](rag/README.md): approved documentation → chunks → local embeddings → Chroma → semantic retrieval. The local extractive Knowledge Assistant is available through `python -m rag.ask` and the constrained **Ask InsightFlow** Streamlit page; see [frontend/ASK_INSIGHTFLOW.md](frontend/ASK_INSIGHTFLOW.md) and [rag/ANSWERING.md](rag/ANSWERING.md). It is not an unrestricted chatbot or SQL agent. Install its separate pinned dependencies with `python -m pip install -r requirements-rag.txt`.
+
+The separate [Online Retail II ETL foundation](etl/README.md) provides local raw, staging, and dimensional transaction tables. The Streamlit **Executive Pulse** landing page and **Customer Intelligence** workspace include retail Customer Segments, Retention, and Customer 360. **Predictive AI → Churn Intelligence** preserves the Telco risk dashboard and observed analytics; AI Insights remains available. Retail customers remain independent of the Telco churn population. See the [retail dashboard guide](frontend/RETAIL_DASHBOARD.md) for pages, definitions, caching, and validation limitations.
 
 ```text
 CustomerSuccessAI/

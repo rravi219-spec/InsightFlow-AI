@@ -26,7 +26,10 @@ def evidence_tokens(text):
 
 
 def query_terms(question):
-    return set(evidence_tokens(question)) - QUESTION_NOISE
+    terms = set(evidence_tokens(question)) - QUESTION_NOISE
+    if re.search(r"\brfm\b", question, re.I):
+        terms.update({"recency", "frequency", "monetary"})
+    return terms
 
 
 def _units(text):
@@ -78,6 +81,8 @@ def _semantic_scores(question, candidates, embeddings=None):
         from rag.retrieval import local_embeddings
         embeddings = local_embeddings()
     expanded_question = question
+    if re.search(r"\brfm\b", question, re.I):
+        expanded_question += " recency frequency monetary"
     if re.search(r"\braw rows?\b", question, re.I):
         expanded_question += " staging_transaction source observations"
     if re.search(r"\b(?:eligible )?fact rows?\b", question, re.I):
@@ -140,21 +145,28 @@ def select_evidence(question, chunks, embeddings=None, max_units=3):
                 (r"net value", r"net[_ ]value"),
                 (r"anonymous customers?", r"anonymous|NULL customer|invented identit"),
                 (r"observed churn", r"observed churn"),
-                (r"predicted churn risk", r"predicted churn risk"),
+                (r"predicted churn (?:risk|probability)", r"predicted churn risk|model probability"),
                 (r"cohort retention", r"first observed qualifying purchase"),
                 (r"cohort retention", r"retention\s*=")):
             if re.search(query_pattern, question, re.I) and re.search(evidence_pattern, candidate["text"], re.I):
                 named_facet_bonus += .32
+        pipeline_bonus = .38 if re.search(r"\bpipeline\b", question, re.I) \
+            and len(re.findall(r"\b(extract\w*|profil\w*|validat\w*|transform\w*|load\w*|reconcil\w*|publish\w*)\b",
+                               candidate["text"], re.I)) >= 3 else 0
+        rfm_definition_bonus = .55 if re.search(r"\brfm\b", question, re.I) \
+            and re.search(r"\*\*[RFM]:\*\*", candidate["text"], re.I) else 0
         candidate["selection_score"] = (.72 * similarity + .23 * candidate["lexical_coverage"]
                                         + .12 * bigram_coverage + .05 / (1 + candidate["chunk_rank"])
                                         + definition_bonus + qualification_bonus
                                         + denominator_bonus + treatment_bonus + numeric_bonus)
         candidate["selection_score"] += schema_count_bonus + named_facet_bonus
+        candidate["selection_score"] += pipeline_bonus + rfm_definition_bonus
     candidates.sort(key=lambda c: (-c["selection_score"], c["chunk"]["source"],
                                    c["chunk"]["chunk_id"], c["text"]))
 
     selected, covered, pool = [], set(), candidates.copy()
-    complete_coverage = .99 if re.search(r"\b(differ|treat|handle)\w*\b", question, re.I) else .66
+    complete_coverage = .99 if re.search(
+        r"\b(differ|treat|handle)\w*\b|\brfm\b", question, re.I) else .66
     while pool and len(selected) < max_units:
         def marginal(candidate):
             candidate_words = set(evidence_tokens(candidate["text"]))
@@ -185,9 +197,14 @@ def select_evidence(question, chunks, embeddings=None, max_units=3):
                                                         selected[0]["text"])) >= 2)
     rfm_definitions = all(any(re.search(rf"\*\*{letter}:\*\*", item["text"], re.I)
                               for item in selected) for letter in "RFM")
-    if not selected or (not quantitative and (top < .34 or (coverage < .30 and top < .48))):
+    pipeline_evidence = bool(re.search(r"\bpipeline\b", question, re.I) and any(
+        len(re.findall(r"\b(extract\w*|profil\w*|validat\w*|transform\w*|load\w*|reconcil\w*|publish\w*)\b",
+                       item["text"], re.I)) >= 3 for item in selected))
+    structured_support = quantitative or rfm_definitions or pipeline_evidence
+    if not selected or (not structured_support
+                        and (top < .34 or (coverage < .30 and top < .48))):
         status = INSUFFICIENT
-    elif quantitative or rfm_definitions or coverage >= .66 or (top >= .62 and coverage >= .45):
+    elif structured_support or coverage >= .66 or (top >= .62 and coverage >= .45):
         status = SUPPORTED
     else:
         status = PARTIAL

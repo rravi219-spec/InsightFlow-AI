@@ -62,6 +62,23 @@ class RagServiceTests(unittest.TestCase):
         self.assertEqual(result.status, ERROR)
         self.assertEqual(result.reason, "knowledge_base_unavailable")
 
+    def test_default_service_initializes_only_on_first_question(self):
+        calls = []
+        service = InsightFlowKnowledgeService(lambda question: calls.append(question) or grounded())
+        self.assertEqual(calls, [])
+        self.assertEqual(service.ask("What is RFM?").status, SUPPORTED)
+        self.assertEqual(calls, ["What is RFM?"])
+
+    def test_page_renders_without_initializing_service(self):
+        script = """
+from unittest.mock import patch
+from frontend.ask_insightflow import show_ask_insightflow
+with patch('frontend.ask_insightflow.knowledge_service', side_effect=AssertionError('must stay lazy')):
+    show_ask_insightflow()
+"""
+        app = AppTest.from_string(script).run()
+        self.assertFalse(app.exception)
+
     def test_service_failure_is_safe(self):
         def broken(question):
             raise RuntimeError("private local path")

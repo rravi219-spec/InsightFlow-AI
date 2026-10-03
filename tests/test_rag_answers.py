@@ -96,8 +96,8 @@ class GroundedAnswerTests(unittest.TestCase):
         retrieve.assert_not_called()
 
     def test_stale_index_is_rejected_before_search(self):
-        with patch("rag.ranking.local_embeddings"), \
-             patch("rag.ranking.open_store", return_value=(Mock(), {"sources": {"README.md": "old"}})), \
+        index = Mock(source_hashes=(("README.md", "old"),))
+        with patch("rag.ranking.knowledge_index", return_value=index), \
              patch("rag.ranking.load_documents", return_value=[]):
             with self.assertRaisesRegex(ValueError, "Documentation changed"):
                 retrieve_ranked("What is RFM?")
@@ -109,6 +109,30 @@ class GroundedAnswerTests(unittest.TestCase):
 
 
 class EvidenceSelectionTests(unittest.TestCase):
+    def test_rfm_acronym_requires_all_definition_facets(self):
+        chunks = [fixture("**R:** Recency is days since purchase. **F:** Frequency is order count. "
+                          "**M:** Monetary is gross purchase value.")]
+        result = select_evidence("How is RFM calculated?", chunks, TokenEmbeddings())
+        self.assertEqual(result["status"], SUPPORTED, result)
+        self.assertEqual({"recency", "frequency", "monetary"} - set().union(
+            *(item["matched_terms"] for item in result["selected"])), set())
+
+    def test_predicted_probability_is_a_risk_synonym(self):
+        chunks = [fixture("Observed churn is a historical source outcome. "
+                          "Predicted churn risk is a model probability.")]
+        result = select_evidence(
+            "What is the difference between observed churn and predicted churn probability?",
+            chunks, TokenEmbeddings())
+        self.assertEqual(result["status"], SUPPORTED)
+
+    def test_pipeline_question_accepts_multi_stage_process_evidence(self):
+        chunks = [fixture("The pipeline performs extraction, validation, transformation, "
+                          "loading, reconciliation, and atomic publication.",
+                          source="etl/README.md")]
+        result = select_evidence("How does the retail ETL pipeline work?", chunks,
+                                 TokenEmbeddings())
+        self.assertEqual(result["status"], SUPPORTED)
+
     def test_relevant_content_wins_at_every_position(self):
         query = "What is the target policy?"
         relevant = fixture("The target policy requires verified evidence.", chunk_id="relevant")

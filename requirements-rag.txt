@@ -1,4 +1,5 @@
-# Local retrieval dependencies resolved against the existing application pins.
+# Optional local Chroma/evaluation environment resolved against the cloud runtime pins.
+# Streamlit Community Cloud installs requirements.txt; production retrieval does not use Chroma.
 -r requirements.txt
 xlrd==2.0.2
 PyPika==0.51.1

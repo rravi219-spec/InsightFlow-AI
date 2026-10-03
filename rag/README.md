@@ -8,23 +8,25 @@ retrieval rules, execution tools, ingestion behavior, or persistent chat
 storage.
 
 ```text
-Approved documents → heading-aware chunks → local CPU embeddings → persistent Chroma → semantic retrieval
+Approved documents → heading-aware chunks → pinned CPU embeddings → cached in-memory vectors → semantic retrieval
 ```
 
-## Installation and explicit build
+## Cloud runtime and optional local tooling
 
 From the repository root, using the existing Python environment:
 
 ```powershell
-python -m pip install -r requirements-rag.txt
-python -m rag.build_index --download-model
+python -m pip install -r requirements.txt
 python -m rag.evaluate
 ```
 
-The first command installs a separate pinned retrieval dependency set, resolved against the existing application requirements on Python 3.13 / Windows. It includes LangChain, its community/text-splitter/Chroma integrations, SentenceTransformers and Chroma, plus pinned newly resolved transitive dependencies. Existing application pins are unchanged. No API key is required. Only the explicit `--download-model` step needs network access to Hugging Face; subsequent builds and retrieval load local files only. To replace an existing index deliberately:
+The trusted Streamlit/CLI query path lazily downloads the pinned public embedding revision when no local model snapshot exists, builds an immutable in-memory matrix from tracked documentation, and caches it for the process. No API key, hosted model, persistent index, or generation model is required. `requirements.txt` is the single cloud dependency manifest.
+
+Persistent Chroma remains optional local development/evaluation tooling. Install its separate environment and explicitly provision a local snapshot/index with:
 
 ```powershell
-python -m rag.build_index --rebuild
+python -m pip install -r requirements-rag.txt
+python -m rag.build_index --download-model --rebuild
 ```
 
 ## Source boundary
@@ -39,20 +41,22 @@ LangChain `Document` objects preserve relative source path, normalized source SH
 
 Model: [`sentence-transformers/all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2), revision `1110a243fdf4706b3f48f1d95db1a4f5529b4d41`, **384 dimensions**, normalized vectors, CPU, batch size 32. The Apache-2.0 model has approximately 22.7 million parameters and is intended for short English paragraphs/semantic search. It was chosen for a small local footprint, not an unmeasured claim of domain accuracy. Its default input limit is 256 word pieces; long queries can be truncated by the encoder. Source chunks stay below that limit.
 
-The safetensors weights are roughly 90 MB; PyTorch and the dependency environment require substantially more disk/RAM. A CPU is sufficient; no GPU is required. Budget several GB of free disk/RAM for installation and execution rather than treating weight size as process memory. No production throughput or minimum-memory claim is made. The runtime uses safetensors, `trust_remote_code=False` and offline local loading. Model files live under ignored `data/embedding_models/<revision>/`.
+The safetensors weights are roughly 90 MB; PyTorch and the dependency environment require substantially more disk/RAM. A CPU is sufficient; no GPU is required. Budget several GB of free disk/RAM for installation and execution rather than treating weight size as process memory. No production throughput or minimum-memory claim is made. The runtime uses safetensors and `trust_remote_code=False`. It reuses an ignored `data/embedding_models/<revision>/` snapshot when present; otherwise it requests the exact pinned Hugging Face revision and uses the normal library cache.
 
-## Persistence and retrieval
+## Production retrieval and local Chroma
 
-Chroma uses ignored `data/vector_store/`, cosine distance and a manifest containing model revision, chunk parameters, source hashes and chunk count. An explicit rebuild writes a new collection and atomically switches `manifest.json` only after all chunks reconcile. A failed build keeps the published collection. Old collections remain for safety; rebuilds therefore grow disk usage. Run one builder at a time. To reclaim space, stop readers and remove/rebuild only the generated vector-store directory manually. A source edit does not auto-index: results describe the manifest's documentation snapshot until an explicit rebuild.
+Production retrieval stores normalized chunk vectors in a read-only NumPy matrix. The matrix, chunks, source hashes, and embedding model are initialized only by the first query and reused in the process. Query vectors use cosine similarity with deterministic source/chunk tie-breaking. No user query can add documents, choose paths, write an index, or rebuild the corpus.
+
+The optional local Chroma builder uses ignored `data/vector_store/`, cosine distance and a manifest containing model revision, chunk parameters, source hashes and chunk count. It is retained for persistence tests and historical evaluation; Streamlit does not import or open it. A failed local build keeps the published collection, and explicit rebuilds may leave old generated collections for safety.
 
 ```python
 from rag.retrieval import retrieve
 results = retrieve("How is repeat purchase rate defined?", k=5)
 ```
 
-Each result contains `text`, `source`, `section`, `chunk_id`, `cosine_distance` (smaller is closer) and `cosine_similarity = 1 - distance` (larger is closer). Similarity is not a probability or calibrated confidence. `k` must be an integer 1–20; fewer results are possible when the corpus is smaller. Empty queries and queries over 4,000 characters are rejected. Query text is embedded as data, never interpreted as SQL, a command, a file path or an ingestion request. Missing indexes fail without implicit creation. Retrieval exposes no mutation tools. Chroma may maintain internal files during reads; the API does not modify indexed documents or publish manifests. Hosted tracing and Chroma telemetry are disabled.
+Each result contains `text`, `source`, `section`, `chunk_id`, `cosine_distance` (smaller is closer) and `cosine_similarity = 1 - distance` (larger is closer). Similarity is not a probability or calibrated confidence. `k` must be an integer 1–20; fewer results are possible when the corpus is smaller. Empty queries and queries over 4,000 characters are rejected. Query text is embedded as data, never interpreted as SQL, a command, a file path or an ingestion request. Retrieval exposes no mutation tools.
 
-For LangChain orchestration without answer generation, `DocumentationRetriever(store, k=5).invoke(query)` returns LangChain documents from an explicitly opened store. The public `retrieve()` API additionally exposes cosine distances. The default model object is reused in-process; connections/stores are not a remote service.
+For LangChain orchestration without answer generation, `DocumentationRetriever(index, k=5).invoke(query)` returns LangChain documents from an explicitly initialized in-memory resource. The public `retrieve()` API additionally exposes cosine distances. The default model and knowledge resource are reused in-process; they are not a remote service.
 
 ## Evaluation and tests
 

@@ -1,15 +1,20 @@
-"""Offline fixture tests use real Chroma and deterministic test-only embeddings."""
+"""Offline fixture tests cover cloud memory retrieval and optional local Chroma."""
+import importlib
 from pathlib import Path
+import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from langchain_core.embeddings import Embeddings
 
 from rag.chunking import chunk_documents
 from rag.documents import load_documents
 from rag.evaluate import evaluate
-from rag.retrieval import DocumentationRetriever, search, validate_query
+from rag.retrieval import (
+    DocumentationRetriever, build_knowledge_index, knowledge_index, search,
+    validate_query,
+)
 from rag.vector_store import build_store, open_store
 
 
@@ -19,6 +24,8 @@ class CharacterTokenizer:
 
 
 class FixtureEmbeddings(Embeddings):
+    tokenizer = CharacterTokenizer()
+
     def embed_documents(self, texts):
         return [self.embed_query(text) for text in texts]
 
@@ -111,6 +118,62 @@ class RagTests(unittest.TestCase):
         self.assertEqual(results[0]["source"], "README.md")
         self.assertAlmostEqual(results[0]["cosine_similarity"], 1, places=5)
         self.assertEqual(len(DocumentationRetriever(store, k=1).invoke("churn")), 1)
+
+    def test_in_memory_index_is_normalized_immutable_and_preserves_metadata(self):
+        index = build_knowledge_index(self.embedding, self.chunks())
+        self.assertEqual(index.vectors.shape, (len(index.chunks), 384))
+        self.assertFalse(index.vectors.flags.writeable)
+        results = search(index, "retention", 1)
+        self.assertIn("retention", results[0]["text"].lower())
+        self.assertEqual(results[0]["source"], "README.md")
+        self.assertIn("Retention", results[0]["section"])
+        self.assertTrue(results[0]["chunk_id"])
+
+    def test_in_memory_index_uses_only_supplied_approved_documents(self):
+        documents = load_documents(self.root, ["README.md"])
+        index = build_knowledge_index(self.embedding, documents)
+        self.assertEqual({chunk.metadata["source"] for chunk in index.chunks}, {"README.md"})
+        self.assertEqual(dict(index.source_hashes), {
+            "README.md": documents[0].metadata["source_sha256"],
+        })
+
+    def test_cached_knowledge_resource_is_reused(self):
+        sentinel = object()
+        knowledge_index.cache_clear()
+        with patch("rag.retrieval.build_knowledge_index", return_value=sentinel) as build:
+            self.assertIs(knowledge_index(), sentinel)
+            self.assertIs(knowledge_index(), sentinel)
+        self.assertEqual(build.call_count, 1)
+        knowledge_index.cache_clear()
+
+    def test_cloud_model_provisioning_uses_pinned_revision_and_dimension(self):
+        from rag import embeddings as module
+        calls = []
+        class Model:
+            tokenizer = CharacterTokenizer()
+            def __init__(self, source, **kwargs):
+                calls.append((source, kwargs))
+            def get_embedding_dimension(self):
+                return 384
+            def encode(self, texts, **kwargs):
+                return [[0.0] * 384 for _ in texts]
+        fake = type(sys)("sentence_transformers")
+        fake.SentenceTransformer = Model
+        with tempfile.TemporaryDirectory() as empty, \
+             patch.object(module, "MODEL_PATH", Path(empty) / "missing"), \
+             patch.dict(sys.modules, {"sentence_transformers": fake}):
+            instance = module.LocalEmbeddings()
+        self.assertEqual(instance.model.get_embedding_dimension(), 384)
+        self.assertEqual(calls[0][0], module.MODEL_NAME)
+        self.assertEqual(calls[0][1]["revision"], module.MODEL_REVISION)
+        self.assertFalse(calls[0][1]["trust_remote_code"])
+        self.assertFalse(calls[0][1]["local_files_only"])
+
+    def test_ask_page_import_is_lightweight(self):
+        import frontend.ask_insightflow as page
+        with patch.dict(sys.modules, {"rag.service": None}):
+            importlib.reload(page)
+        self.assertTrue(callable(page.show_ask_insightflow))
 
     def test_failed_rebuild_preserves_published_index(self):
         path = self.root / "index"

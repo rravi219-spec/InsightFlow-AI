@@ -1,8 +1,12 @@
 """Constrained Streamlit presentation for the read-only RAG service."""
 import streamlit as st
 
-from rag.evidence import INSUFFICIENT, PARTIAL, SUPPORTED
-from rag.service import ERROR, MAX_QUESTION_LENGTH, REFUSED, InsightFlowKnowledgeService
+SUPPORTED = "SUPPORTED"
+PARTIAL = "PARTIALLY_SUPPORTED"
+INSUFFICIENT = "INSUFFICIENT"
+REFUSED = "REFUSED"
+ERROR = "ERROR"
+MAX_QUESTION_LENGTH = 4000
 
 EXAMPLES = (
     "What do the RFM metrics mean?",
@@ -14,7 +18,8 @@ EXAMPLES = (
 
 @st.cache_resource
 def knowledge_service():
-    """Cache only the stateless facade; underlying model loading is already cached."""
+    """Import the RAG stack only after a user submits a question."""
+    from rag.service import InsightFlowKnowledgeService
     return InsightFlowKnowledgeService()
 
 

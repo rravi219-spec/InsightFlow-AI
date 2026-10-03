@@ -1,10 +1,8 @@
 """Bounded UI facade for the deterministic InsightFlow knowledge assistant."""
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Callable
 
 from rag.answering import ask as answer_question
-from rag.config import MODEL_PATH, STORE
 from rag.evidence import INSUFFICIENT, PARTIAL, SUPPORTED
 
 REFUSED = "REFUSED"
@@ -20,16 +18,11 @@ class AskResult:
     reason: str | None = None
 
 
-def knowledge_base_ready(store=STORE, model_path=MODEL_PATH):
-    """Check only fixed application paths; never create or rebuild resources."""
-    return (Path(store) / "manifest.json").is_file() and Path(model_path).is_dir()
-
-
 class InsightFlowKnowledgeService:
     """Read-only facade. It exposes no ingestion, execution, or mutation method."""
 
     def __init__(self, answerer: Callable[[str], dict] = answer_question,
-                 readiness: Callable[[], bool] = knowledge_base_ready):
+                 readiness: Callable[[], bool] | None = None):
         self._answerer = answerer
         self._readiness = readiness
 
@@ -40,7 +33,7 @@ class InsightFlowKnowledgeService:
         if len(question) > MAX_QUESTION_LENGTH:
             return AskResult(REFUSED, "", (), "question_too_long")
         try:
-            if not self._readiness():
+            if self._readiness is not None and not self._readiness():
                 return AskResult(ERROR, "", (), "knowledge_base_unavailable")
             raw = self._answerer(question)
             return _validated_result(raw)

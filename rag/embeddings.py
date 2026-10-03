@@ -1,4 +1,4 @@
-"""CPU embeddings; network access is confined to explicit model provisioning."""
+"""Pinned CPU embeddings with local-first, lazy cloud provisioning."""
 import os
 
 from langchain_core.embeddings import Embeddings
@@ -17,13 +17,17 @@ def download_model():
 class LocalEmbeddings(Embeddings):
     def __init__(self):
         os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
-        os.environ["HF_HUB_OFFLINE"] = "1"
-        os.environ["TRANSFORMERS_OFFLINE"] = "1"
-        if not (MODEL_PATH / "model.safetensors").is_file():
-            raise FileNotFoundError("Local embedding model missing; run python -m rag.build_index --download-model")
         from sentence_transformers import SentenceTransformer
-        self.model = SentenceTransformer(str(MODEL_PATH), device="cpu", local_files_only=True,
-            trust_remote_code=False, model_kwargs={"use_safetensors": True})
+        local = (MODEL_PATH / "model.safetensors").is_file()
+        source = str(MODEL_PATH) if local else MODEL_NAME
+        options = {
+            "device": "cpu", "local_files_only": local, "trust_remote_code": False,
+            "model_kwargs": {"use_safetensors": True},
+        }
+        if not local:
+            # Never follow a moving model branch in cloud deployments.
+            options["revision"] = MODEL_REVISION
+        self.model = SentenceTransformer(source, **options)
         if self.model.get_embedding_dimension() != DIMENSION:
             raise ValueError("Unexpected embedding dimension")
         self.tokenizer = self.model.tokenizer

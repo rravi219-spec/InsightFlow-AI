@@ -1,6 +1,6 @@
 # Ask InsightFlow
 
-Ask InsightFlow is a constrained, local documentation assistant integrated into the existing Streamlit navigation. It answers questions about approved InsightFlow analytics, ETL, data quality, retail customer analytics, and implementation methodology. It is not an autonomous agent, SQL agent, web-search assistant, or production support system.
+Ask InsightFlow is a constrained documentation assistant integrated into the existing Streamlit navigation. It answers questions about approved InsightFlow analytics, ETL, data quality, retail customer analytics, and implementation methodology. It is not an autonomous agent, SQL agent, web-search assistant, or production support system.
 
 ## Architecture
 
@@ -14,10 +14,7 @@ Ask InsightFlow is a constrained, local documentation assistant integrated into 
 
 The page does not contain retrieval, ranking, or safety rules. `InsightFlowKnowledgeService.ask(question)` returns a structured immutable result with status, answer, validated evidence, citations, and a bounded reason code. The facade fails closed if the result or citation mapping is malformed.
 
-The existing embedding loader is process-cached. Streamlit caches only the stateless service facade. Reruns do not rebuild or ingest the index. If the manifest or pinned local embedding model is missing, the page displays an operational error and leaves rebuilding as an explicit developer action:
-
-    python -m rag.build_index --rebuild
-    streamlit run frontend/adaptive_dashboard.py
+The Ask module is lightweight: it imports the RAG service only after a question is submitted. The first question lazily loads the pinned public MiniLM revision, reads exactly the eight approved tracked documents, deterministically chunks them, computes a normalized in-memory embedding matrix, and caches that resource for later questions in the process. It does not create a vector database or write an index. A local pre-downloaded model is reused when available; a clean cloud runtime downloads only the pinned revision through SentenceTransformers. Provisioning failures produce a bounded operational state without exposing paths or a stack trace, and do not affect unrelated pages.
 
 ## Visible states
 
@@ -35,4 +32,4 @@ Questions are limited to 4,000 characters. Example questions come from the evalu
 
 The facade exposes only `ask`. It has no shell, SQL, filesystem-selection, database-mutation, ingestion, Git, network, Python-execution, or index-mutation method. Existing out-of-scope, injection, source allowlist, freshness, and citation checks remain authoritative.
 
-The assistant is a constrained local pilot. Its evaluation set is small, sufficiency thresholds are development heuristics, answers are extractive, and unseen injection paraphrases remain possible. Documentation edits require an explicit index rebuild. It is not validated for unrestricted production use.
+The assistant is a constrained pilot. Its evaluation set is small, sufficiency thresholds are development heuristics, answers are extractive, and unseen injection paraphrases remain possible. A new application process rebuilds the small in-memory corpus from tracked sources; it does not rely on persistent cloud storage. It is not validated for unrestricted production use.

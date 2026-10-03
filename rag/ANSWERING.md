@@ -18,7 +18,7 @@ LangChain `RunnableLambda` stages still orchestrate the path. Retrieval and embe
 
 ## Evidence selection
 
-`rag/evidence.py` extracts prose sentences, bullets, formulas, and meaningful table rows. It scores their content using the existing local MiniLM embeddings, literal query-term coverage, phrase overlap, bounded document-rank influence, and generic intent features for definitions, denominators, treatment questions, and measured counts. Section text can improve semantic context but cannot satisfy lexical sufficiency. Acronyms cannot masquerade as all requested facets.
+`rag/evidence.py` extracts prose sentences, bullets, formulas, and meaningful table rows. It scores their content using the pinned MiniLM embeddings, literal query-term coverage, phrase overlap, bounded document-rank influence, and generic intent features for definitions, denominators, treatment questions, and measured counts. Section text can improve semantic context but cannot satisfy lexical sufficiency. Acronyms cannot masquerade as all requested facets.
 
 Selection is independent of request-local labels. It uses deterministic ordering, suppresses exact/near duplicate units, and applies a redundancy penalty so repeated wording does not crowd out another requested facet. A maximum of three units is emitted. Tests place the same relevant passage at every candidate position, behind misleading high-ranked text, beside multiple relevant passages, and among duplicates.
 
@@ -44,15 +44,11 @@ The output is concise extractive synthesis. Exact quotation and citation identit
 
 The assistant uses `retrieve_ranked()`: up to 20 dense candidates are reranked with normalized lexical relevance and explicit source authority. RFM, CLV, and documented anonymous-customer terminology are normalized to improve passage recall without embedding expected answer text. Definition questions prefer current methodology; measured count questions prefer dated validation. Historical checkpoints stay indexed for retrieval evaluation but are excluded from answer construction.
 
-All approved source hashes must match the index manifest. Documentation changes require an explicit:
-
-```powershell
-python -m rag.build_index --rebuild
-```
+Cloud retrieval lazily creates one process-cached, immutable matrix from the current approved documents. Source hashes captured during initialization are rechecked before retrieval, so a mixed stale/current corpus fails closed. A fresh process deterministically reconstructs chunks and vectors without persistent index files. Optional local Chroma build/evaluation remains separate from the production query path.
 
 Queries cannot select files, mutate the index, execute commands, or invoke SQL. Direct prompt-injection patterns, external current-fact requests, and unsupported individual-customer requests abstain before answer construction.
 
-## Local model record
+## Historical generation-model record
 
 Ollama was unavailable. The earlier experiment selected HuggingFaceTB/SmolLM2-360M-Instruct at revision `a10cc1512eabd3dde888204e902eca88bddb4951` (about 690 MiB of safetensors weights) for CPU use on the inspected 15.8 GiB Windows machine. Its position-biased evidence-selection result disqualifies it from the trusted answer path. Unit tests and the final evaluator do not require it to run.
 

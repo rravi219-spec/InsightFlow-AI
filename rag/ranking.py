@@ -7,8 +7,7 @@ from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 
 from rag.config import SOURCES
 from rag.documents import load_documents
-from rag.retrieval import local_embeddings, search, validate_query
-from rag.vector_store import open_store
+from rag.retrieval import knowledge_index, search, validate_query
 
 METHODOLOGY = {"analytics/README.md", "analytics/RETAIL_CUSTOMER_ANALYTICS.md", "etl/README.md"}
 MEASUREMENTS = {"analytics/RETAIL_CUSTOMER_VALIDATION.md", "etl/VALIDATION.md"}
@@ -70,13 +69,13 @@ def rank_candidates(query, candidates):
 
 def retrieve_ranked(query, k=5):
     validate_query(query, k)
-    store, manifest = open_store(local_embeddings())
+    index = knowledge_index()
     current = {d.metadata["source"]: d.metadata["source_sha256"] for d in load_documents()}
-    if current != manifest["sources"]:
-        raise ValueError("Documentation changed since indexing; explicitly rebuild before answering")
+    if tuple(sorted(current.items())) != index.source_hashes:
+        raise ValueError("Documentation changed during cached knowledge initialization")
     # Re-rank the full bounded local pool: source-level hits can otherwise
     # hide the specific passage needed for a multi-part answer.
-    candidates = search(store, normalize(query), min(20, manifest["chunks"]))
+    candidates = search(index, normalize(query), min(20, len(index.chunks)))
     if any(c["source"] not in SOURCES for c in candidates):
         raise ValueError("Unapproved source in retrieval results")
     return rank_candidates(query, candidates)[:k]
